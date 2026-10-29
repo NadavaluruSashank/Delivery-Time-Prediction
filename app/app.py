@@ -11,9 +11,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from flask import Flask, request, jsonify
-from predict import predict_delivery_time
+from predict import predict_delivery_time, load_model
 
 app = Flask(__name__)
+load_model()  # load once at startup so the first request isn't slow
 
 
 @app.route("/", methods=["GET"])
@@ -26,9 +27,11 @@ def home():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    try:
-        data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
 
+    try:
         required_fields = ["distance_km", "order_hour", "vehicle_type", "weather_condition", "traffic_density"]
         missing = [f for f in required_fields if f not in data]
         if missing:
@@ -41,9 +44,13 @@ def predict():
             "input": data
         })
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        app.logger.exception("Prediction failed")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(debug=debug, port=5000)
